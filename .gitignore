@@ -6,3 +6,4 @@ cpd/.Rhistory
 cpd/.*
 
 cpd/man/*
+.Rproj.user

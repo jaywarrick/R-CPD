@@ -59,18 +59,19 @@ get1 <- function(x, flip=F)
      }
 }
 
-#' %=%
+#' \%=\%
 #'
 #' Internal interface for the %=% assignment. This will be used to enable
 #' Matlab-like assignment of variables from functions that return lists.
 #'
 #' E.g.,
-#'
 #'   Matlab: [a, b] = dim(A)
-#'   R: l(a, b) %=% dim(A)
+#'   R: l(a, b) \%=\% dim(A)
 #'
 #' @param l left hand side of the assignment
 #' @param r right hand side of the assignment
+#'
+#' @rdname equals
 #'
 #' @export
 '%=%' <- function(l, r)
@@ -78,7 +79,7 @@ get1 <- function(x, flip=F)
      UseMethod('%=%')
 }
 
-#' %=%.lbunch
+#' \%=\%.lbunch
 #'
 #' Internal function will be used to enable
 #' Matlab-like assignment of variables from functions that return lists.
@@ -86,14 +87,16 @@ get1 <- function(x, flip=F)
 #' E.g.,
 #'
 #'   Matlab: [m, n] = dim(A)
-#'   R: l(m, n) %=% dim(A)
+#'   R: l(m, n) \%=\% dim(A)
 #'
 #' @param l left hand side of the assignment
 #' @param r right hand side of the assignment
 #'
+#' @rdname lbunch
+#'
 #' @export
 #'
-#' @examples A <- matrix(1:4, ncol=2); l(m, n) %=% dim(A);
+#' @examples A <- matrix(1:4, ncol=2); l(m, n) \%=\% dim(A);
 '%=%.lbunch' <- function(l, r)
 {
      Names = lapply(l, as.character)
@@ -159,28 +162,23 @@ getDiffSquared <- function(X, Y, B, tr)
      temp <- matrix(rowSums((Xbig - Ybig_t)^2), ncol=N)
 }
 
-#' cpd_P(X, Y, sigma2, w, B, tr)
+#' getP(X, Y, sigma2, w, B, tr)
 #'
 #' This function uses the function 'getDiffSquared' to estimate Pmn which is defined
 #' in the associated manuscript for this package in Figure 3 depicting the
-#' Coherent Point Drift algorithm.
-#'
-#' Manuscript:
-#'
-#'        A. Myronenko and X. Song.
-#'        Point set registration: coherent point drift.
-#'        IEEE Trans Pattern Anal Mach Intell, 32(12):2262–75, Dec 2010.
-#'        doi: 10.1109/TPAMI.2010.46.
+#' Coherent Point Drift algorithm. This implementation is based upon the paper by Andriy
+#' Myronenko and Xubo Song titled "Point set registration: coherent point drift" in IEEE
+#' Trans Pattern Anal Mach Intell, Dec 2010.
 #'
 #' @param X matrix representing N points and D dimensions. Each column represents a dimension (e.g., x, y, z...) and each row a point
 #' @param Y matrix representing M points and D dimensions. Each column represents a dimension (e.g., x, y, z...) and each row a point
 #' @param sigma2 double indicating the variance around each point in the GMM representation of the registration problem
-#' @param w double value (0 <= w < 1) for accomodating noise and outliers
+#' @param w double value (0 \<= w \< 1) for accomodating noise and outliers
 #' @param B Transformation matrix (scaling and/or rotation)
 #' @param tr single column matrix with the translation that will be applied for each dimension of the points in Y
 #'
 #' @export
-cpd_P <- function(X, Y, sigma2, w, B, tr)
+getP <- function(X, Y, sigma2, w, B, tr)
 {
      D <- ncol(X)
      M <- nrow(Y)
@@ -292,20 +290,15 @@ plotXYYT <- function(X, Y, YT, includeYT=T)
 
 #' Coherent Point Drift Registration (Rigid Transformations)
 #'
-#' Implementation of:
-#'
-#'        A. Myronenko and X. Song.
-#'        Point set registration: coherent point drift.
-#'        IEEE Trans Pattern Anal Mach Intell, 32(12):2262–75, Dec 2010.
-#'        doi: 10.1109/TPAMI.2010.46.
-#'
-#' This implementation builds upon this work in the referenced manuscript by adding
-#' the ability to attenuate adjustments of scale, rotation, translation, and sigma^2
+#' This implementation is based upon the paper by Andriy Myronenko and Xubo Song
+#' titled "Point set registration: coherent point drift" in IEEE Trans Pattern Anal
+#' Mach Intell, Dec 2010. This implementation builds upon this work in the referenced
+#' manuscript by adding the ability to attenuate adjustments of scale, rotation, translation, and sigma^2
 #' as the algorithm iterates. This helps to promote convergence in cases where certain
 #' degrees of freedom are needed but do not dominate. This is done through the
 #' rateSRTSigma parameter and is in addition to the w, sigma2, and tol parameters
 #'
-#' @param X matrix representing M points and D dimensions. These points are the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param X matrix representing N points and D dimensions. These points are the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
 #' @param Y matrix representing M points and D dimensions. These points are the those to be registered. Each column represents a dimension (e.g., x, y, z...) and each row a point
 #' @param w double value (0 <= w < 1) for accomodating noise and outliers
 #' @param maxIter integer maximum number of iterations for the EM algorithm
@@ -318,7 +311,7 @@ plotXYYT <- function(X, Y, YT, includeYT=T)
 #' @export
 #'
 #' @examples demoCPD(rigid=FALSE)
-cpd_affine <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1))
+cpd.affine <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1))
 {
      # Gather some basic values
      l(N, D) %=% dim(X);
@@ -345,7 +338,7 @@ cpd_affine <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,
           Q_old <- Q;
 
           # Calculate Pmn with current information
-          P <- cpd_P(X=X, Y=YT, sigma2=sigma2, w=w, B=B, tr=tr);
+          P <- getP(X=X, Y=YT, sigma2=sigma2, w=w, B=B, tr=tr);
 
           # Update the information
           Np <- sum(P);
@@ -402,19 +395,17 @@ cpd_affine <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,
 
 #' Coherent Point Drift Registration (Rigid Transformations)
 #'
-#' Implementation of Coherent Point Drift registration algorithm:
-#'        A. Myronenko and X. Song.
-#'        Point set registration: coherent point drift.
-#'        IEEE Trans Pattern Anal Mach Intell, 32(12):2262–75, Dec 2010.
-#'        doi: 10.1109/TPAMI.2010.46.
-#'
-#' This implementation builds upon this work in the referenced manuscript by adding
-#' the ability to attenuate adjustments of scale, rotation, translation, and sigma^2
+#' This implementation is based upon the paper by Andriy Myronenko and Xubo Song
+#' titled "Point set registration: coherent point drift" in IEEE Trans Pattern Anal
+#' Mach Intell, Dec 2010. This implementation builds upon this work in the referenced
+#' manuscript by adding the ability to attenuate adjustments of scale, rotation, translation, and sigma^2
 #' as the algorithm iterates. This helps to promote convergence in cases where certain
 #' degrees of freedom are needed but do not dominate. This is done through the
 #' rateSRTSigma parameter and is in addition to the w, sigma2, and tol parameters
 #'
-#' @param X matrix representing M points and D dimensions. These points are the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @references <https://www.ncbi.nlm.nih.gov/pubmed/20975122>
+#'
+#' @param X matrix representing N points and D dimensions. These points are the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
 #' @param Y matrix representing M points and D dimensions. These points are the those to be registered. Each column represents a dimension (e.g., x, y, z...) and each row a point
 #' @param w double value (0 <= w < 1) for accomodating noise and outliers
 #' @param maxIter integer maximum number of iterations for the EM algorithm
@@ -427,7 +418,7 @@ cpd_affine <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,
 #' @export
 #'
 #' @examples demoCPD(rigid=TRUE)
-cpd_rigid <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1))
+cpd.rigid <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1))
 {
      # Gather some basic values
      l(N, D) %=% dim(X);
@@ -452,7 +443,7 @@ cpd_rigid <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1
      }
      while((iter < maxIter) && nErr_old > tol && (sigma2 > 10*eps))
      {
-          P <- cpd_P(X=X, Y=YT, sigma2=sigma2, w=w, B=Sxy*R, tr=tr);
+          P <- getP(X=X, Y=YT, sigma2=sigma2, w=w, B=Sxy*R, tr=tr);
 
           Np <- sum(P);
           mux <- (1/Np) * t(X) %*% t(P) %*% get1(P, flip=F)
@@ -529,28 +520,55 @@ demoCPD <- function(rigid=F)
      x2points <- matrix(alpha*runif(4), ncol=2)
      x2points[1:2,2] <- x2points[1:2,2] + alpha*2
      x2points <- rbind(xpoints, x2points)
-     jitter1 <- matrix(alpha*runif((n+0)*2, -0.01, 0.01), ncol=2)
-     jitter2 <- matrix(alpha*runif((n+2)*2, -0.01, 0.01), ncol=2)
+     jitter1 <- matrix(alpha*rnorm((n+0)*2, -0.01, 0.01), ncol=2)
+     jitter2 <- matrix(alpha*rnorm((n+2)*2, -0.01, 0.01), ncol=2)
      ypoints <- x2points + jitter2
      plot(xpoints, xlim=c(0, 4), ylim = c(0,4))
      points(ypoints, col='red')
      if(!rigid)
      {
           # list(P, X, Y, YT, B, tr, iter, sigma2, eps10, nErr)
-          temp <- cpd_affine(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=1e-15, plot=T, sigma2=0.01, rateSRTSigma = c(0,0.1,1,0.0051))
+          temp <- cpd.affine(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=1e-15, plot=T, sigma2=0.01, rateSRTSigma = c(0,0.1,1,0.0051))
      }
      else
      {
           # list(P, X, Y, YT, B, tr, iter, sigma2, eps10, nErr)
-          temp <- cpd_rigid(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=1e-15, plot=T, sigma2=0.01, rateSRTSigma=c(0,0.1,1,0.0051))
+          temp <- cpd.rigid(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=1e-15, plot=T, sigma2=0.01, rateSRTSigma=c(0,0.1,1,0.0051))
      }
 
      plotXYYT(temp$X, temp$Y, temp$YT)
      print(paste0('Iterations: ', temp$iter))
      print(paste0('Error: ', temp$nErr))
+     return(temp)
 }
 
-# demoCPD(rigid=FALSE)
+#' getCorrespondence(P, X, YT, threshDist)
+#'
+#' Calculate which cells correspond with which other cells
+#'
+#' @param P The M x N matrix of column normalized probabilities
+#' @param X matrix representing N points and D dimensions. These points were the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param YT matrix representing M points and D dimensions. These points were the those that were registered/transformed. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param threshDist double for calculating whether the corresponding points are within (inclusive) a certain distance.
 
+#' @export
+getCorrespondence <- function(P, X, YT, threshDist=NULL)
+{
+     # Get the maximum probability match for each X (i.e., get the col max's indicies)
+     # We need to do it this way because the probabilities are normalized per column (vs row)
+     bestYforX <- as.numeric(lapply(as.list(as.data.frame(P)), which.max))
+     bestYforX <- data.frame(ym=bestYforX, xn=1:ncol(P))
+     bestYforX$dist <- sqrt(rowSums((X[bestYforX$xn,]-YT[bestYforX$ym,])^2))
+     # bestYforX$logProb <- log(P[as.matrix(bestYforX[,c('ym', 'xn')])])
 
+     if(is.null(threshDist))
+     {
+          bestYforX$passDistThresh <- NA
+     }
+     else
+     {
+          bestYforX$passDist <- bestYforX$dist <= threshDist
+     }
+     return(bestYforX)
+}
 
