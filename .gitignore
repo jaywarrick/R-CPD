@@ -1,10 +1,9 @@
 
 cpd/.RData
-
 cpd/.Rhistory
-
 cpd/.*
-
 cpd/man/*
 .Rproj.user
 *.zip
+*.gz
+*.tgz
