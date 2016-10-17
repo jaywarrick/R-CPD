@@ -288,7 +288,7 @@ plotXYYT <- function(X, Y, YT, includeYT=T)
      }
 }
 
-#' Coherent Point Drift Registration (Rigid Transformations)
+#' Coherent Point Drift Registration (Affine Transformations)
 #'
 #' This implementation is based upon the paper by Andriy Myronenko and Xubo Song
 #' titled "Point set registration: coherent point drift" in IEEE Trans Pattern Anal
@@ -393,6 +393,115 @@ cpd.affine <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,
      return(list(P=P, X=X, Y=Y, YT=YT, B=B, tr=tr, iter=iter, sigma2=sigma2, eps10=10*eps, nErr=nErr))
 }
 
+#' Coherent Point Drift Registration (Affine Transformations, annealing version)
+#'
+#' This implementation is based upon the paper by Andriy Myronenko and Xubo Song
+#' titled "Point set registration: coherent point drift" in IEEE Trans Pattern Anal
+#' Mach Intell, Dec 2010. This implementation builds upon this work in the referenced
+#' manuscript by adding the ability to attenuate adjustments of scale, rotation, translation, and sigma^2
+#' as the algorithm iterates. This helps to promote convergence in cases where certain
+#' degrees of freedom are needed but do not dominate. This is done through the
+#' rateSRTSigma parameter and is in addition to the w, sigma2, and tol parameters
+#'
+#' In the annealing version, instead of calcualting the new sigma2 at each step, we
+#' take the user provided sigma2 and slowly reduce it. This is done by multiplying
+#' the sigma2 at each step by rateSRTSigma[4] (default 0.9)
+#'
+#' @param X matrix representing N points and D dimensions. These points are the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param Y matrix representing M points and D dimensions. These points are the those to be registered. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param w double value (0 <= w < 1) for accomodating noise and outliers
+#' @param maxIter integer maximum number of iterations for the EM algorithm
+#' @param tol double indicating the relative change/error in the value of the objective function, Q, at which the algorithm should stop and return a result
+#' @param plot boolean indicating whether to visualize/plot the two point sets and the current state of the transformed point set after each maximization step
+#' @param sigma2 double indicating the initial variance around each point for building the Gaussian Mixture Model from the point set
+#' @param rateSRTSigma numeric vector with 4 values between 0 and 1 in sequence indicating how rapidly to adjust Scale, Rotation, Translation, and Sigma. Putting 0 forces no change in the parameter (e.g., Scale remains 1, Rotation remains 0, Translation remains 0, Sigma2 will stay the same as provided). The closer to 0, the slower that parameter changes.
+#'
+#' @return list(P, X, Y, YT, Sx, Sy, R, tr, iter, sigma2, eps10, nErr)
+#' @export
+#'
+#' @examples demoCPD(rigid=FALSE)
+cpd.affine.annealing <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,0.9))
+{
+     # Gather some basic values
+     l(N, D) %=% dim(X);
+     l(M, D) %=% dim(Y);
+
+     # Initialize variables
+     B <- diag(2)
+     tr <- matrix(c(0,0))
+     YT <- Y
+
+     # Iterate
+     iter <- 0
+     eps <- .Machine$double.eps
+     nErr <- tol + 10
+     nErr_old <- nErr
+     sigma2_old <- sigma2
+     Q <- .Machine$double.xmax;
+     if(plot)
+     {
+          plotXYYT(X, Y, YT, includeYT=F)
+     }
+     while((iter < maxIter) && nErr_old > tol && (sigma2 > 10*eps))
+     {
+          Q_old <- Q;
+
+          # Calculate Pmn with current information
+          P <- getP(X=X, Y=YT, sigma2=sigma2, w=w, B=B, tr=tr);
+
+          # Update the information
+          Np <- sum(P);
+          mux <- (1/Np) * t(X) %*% t(P) %*% get1(P, flip=F)
+          muy <- (1/Np) * t(YT) %*% P %*% get1(P, flip=T)
+
+          Xhat <- X - repmat(t(mux), m=N)
+          Yhat <- YT - repmat(t(muy), m=M)
+
+          B <- ( t(Xhat) %*% t(P) %*% Yhat ) %*% matrix.inverse( t(Yhat) %*% (diag(as.vector(P %*% get1(P, flip=T))) %*% Yhat))
+          l(Sx, Sy, Theta) %=% getRS(B)
+          Sx <- 1 + rateSRTSigma[1]*(Sx-1) # Attentuate rate of change in Sx
+          Sy <- 1 + rateSRTSigma[1]*(Sy-1) # Attentuate rate of change in Sy
+          Theta <- rateSRTSigma[2]*Theta # Attentuate rate of change in Theta
+          B <- makeB(Sx, Sy, Theta)
+          tr <- mux - B %*% muy
+          tr <- rateSRTSigma[3]*tr # Attentuate rate of change in tr
+          # sigma2 <- abs((1/(Np * D))*(matrix.trace(t(Xhat) %*% (diag(as.vector(t(P) %*% get1(P, flip=F))) %*% Xhat)) - matrix.trace( t(Xhat) %*% t(P) %*% Yhat %*% t(B)))) # abs used here to avoid rounding errors that lead to negative values
+          sigma2 <- rateSRTSigma[4] * sigma2 # Attentuate rate of convergence in sigma2
+          if(is.nan(sigma2))
+          {
+               # Try to work through any issues of calculating sigma2 by just using the previous value
+               sigma2 <- sigma2_old
+          }
+
+          # Calculate transformed points using new information
+          YT <- transformY(Y=YT, B=B, tr=tr)
+
+          # Finish up
+          iter <- iter+1
+
+          Q <- getQ(P=P, X=X, Y=YT, B=B, tr=tr, sigma2=sigma2)
+
+          nErr <- abs((Q_old-Q)/Q)
+          if(!is.nan(nErr))
+          {
+               nErr_old <- nErr
+          }
+
+          if(!is.nan(sigma2))
+          {
+               sigma2_old <- sigma2
+          }
+
+          cat('Sigma^2=', sigma2, "\tNormError=", nErr, "\tSx=", Sx, "\tSy", Sy, "\tR=", getRS(B)$Theta, "\ttr", tr, "\n")
+
+          if(plot)
+          {
+               plotXYYT(X, Y, YT)
+          }
+     }
+     return(list(P=P, X=X, Y=Y, YT=YT, B=B, tr=tr, iter=iter, sigma2=sigma2, eps10=10*eps, nErr=nErr))
+}
+
 #' Coherent Point Drift Registration (Rigid Transformations)
 #'
 #' This implementation is based upon the paper by Andriy Myronenko and Xubo Song
@@ -436,13 +545,15 @@ cpd.rigid <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1
      nErr <- tol + 10
      nErr_old <- nErr
      sigma2_old <- sigma2
-     Q_old <- .Machine$double.xmax
+     Q <- .Machine$double.xmax
      if(plot)
      {
           plotXYYT(X, Y, YT, includeYT=T)
      }
      while((iter < maxIter) && nErr_old > tol && (sigma2 > 10*eps))
      {
+          Q_old <- Q;
+
           P <- getP(X=X, Y=YT, sigma2=sigma2, w=w, B=Sxy*R, tr=tr);
 
           Np <- sum(P);
@@ -500,6 +611,119 @@ cpd.rigid <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1
      return(list(P=P, X=X, Y=Y, YT=YT, Sx=Sxy, Sy=Sxy, R=R, tr=tr, iter=iter, sigma2=sigma2, eps10=10*eps, nErr=nErr))
 }
 
+#' Coherent Point Drift Registration (Rigid Transformations, annealing version)
+#'
+#' This implementation is based upon the paper by Andriy Myronenko and Xubo Song
+#' titled "Point set registration: coherent point drift" in IEEE Trans Pattern Anal
+#' Mach Intell, Dec 2010. This implementation builds upon this work in the referenced
+#' manuscript by adding the ability to attenuate adjustments of scale, rotation, translation, and sigma^2
+#' as the algorithm iterates. This helps to promote convergence in cases where certain
+#' degrees of freedom are needed but do not dominate. This is done through the
+#' rateSRTSigma parameter and is in addition to the w, sigma2, and tol parameters
+#'
+#' #' In the annealing version, instead of calcualting the new sigma2 at each step, we
+#' take the user provided sigma2 and slowly reduce it. This is done by multiplying
+#' the sigma2 at each step by rateSRTSigma[4] (default 0.9)
+#'
+#' @references <https://www.ncbi.nlm.nih.gov/pubmed/20975122>
+#'
+#' @param X matrix representing N points and D dimensions. These points are the targets of registration. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param Y matrix representing M points and D dimensions. These points are the those to be registered. Each column represents a dimension (e.g., x, y, z...) and each row a point
+#' @param w double value (0 <= w < 1) for accomodating noise and outliers
+#' @param maxIter integer maximum number of iterations for the EM algorithm
+#' @param tol double indicating the relative change/error in the value of the objective function, Q, at which the algorithm should stop and return a result
+#' @param plot boolean indicating whether to visualize/plot the two point sets and the current state of the transformed point set after each maximization step
+#' @param sigma2 double indicating the initial variance around each point for building the Gaussian Mixture Model from the point set
+#' @param rateSRTSigma numeric vector with 4 values between 0 and 1 in sequence indicating how rapidly to adjust Scale, Rotation, Translation, and Sigma. Putting 0 forces no change in the parameter (e.g., Scale remains 1, Rotation remains 0, Translation remains 0, Sigma2 will stay the same as provided). The closer to 0, the slower that parameter changes.
+#'
+#' @return list(P, X, Y, YT, Sx, Sy, R, tr, iter, sigma2, eps10, nErr)
+#' @export
+#'
+#' @examples demoCPD(rigid=TRUE)
+cpd.rigid.annealing <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,0.9))
+{
+     # Gather some basic values
+     l(N, D) %=% dim(X);
+     l(M, D) %=% dim(Y);
+
+     # Initialize variables
+     Sxy <- 1
+     R <- diag(2)
+     tr <- matrix(c(0,0))
+     YT <- Y;
+
+     # Iterate
+     iter <- 0;
+     eps <- .Machine$double.eps
+     nErr <- tol + 10
+     nErr_old <- nErr
+     sigma2_old <- sigma2
+     Q <- .Machine$double.xmax
+     if(plot)
+     {
+          plotXYYT(X, Y, YT, includeYT=T)
+     }
+     while((iter < maxIter) && nErr_old > tol && (sigma2 > 10*eps))
+     {
+          Q_old <- Q;
+
+          P <- getP(X=X, Y=YT, sigma2=sigma2, w=w, B=Sxy*R, tr=tr);
+
+          Np <- sum(P);
+          mux <- (1/Np) * t(X) %*% t(P) %*% get1(P, flip=F)
+          muy <- (1/Np) * t(YT) %*% P %*% get1(P, flip=T)
+
+          Xhat <- X - repmat(t(mux), m=N)
+          Yhat <- YT - repmat(t(muy), m=M)
+
+          A <- t(Xhat) %*% t(P) %*% Yhat
+          l(d, u, v) %=% svd(A)
+          littlec <- det(u %*% t(u))
+          C <- diag(c(rep(1, times=D-1), littlec))
+          R <- u %*% C %*% t(v)
+          R <- makeR(rateSRTSigma[2]*getRS(R)$Theta) # attenuate the rate of change of R
+          Sxy <- matrix.trace(t(A) %*% R) / matrix.trace(t(Yhat) %*% diag(as.vector(P %*% get1(P, flip=T))) %*% Yhat)
+          Sxy <- 1 + rateSRTSigma[1]*(Sxy-1) # attenuate the rate of change of R
+          tr <- (mux - (Sxy * R) %*% muy)
+          tr <- rateSRTSigma[3]*tr  # attenuate the rate of change of tr
+          temp1 <- matrix.trace(t(Xhat) %*% (diag(as.vector(t(P) %*% get1(P, flip=F))) %*% Xhat))
+          # sigma2 <- abs((1/(Np * D))*(temp1 - Sxy * matrix.trace(t(A) %*% R))) # abs used here to avoid rounding errors that lead to negative values
+          sigma2 <- rateSRTSigma[4] * sigma2 # attenuate the rate of convergence of sigma2
+
+          if(is.nan(sigma2))
+          {
+               # Try to work through any issues of calculating sigma2 by just using the previous value
+               sigma2 <- sigma2_old
+          }
+
+          YT <- transformY(Y=YT, B=Sxy*R, tr=tr)
+
+          # Finish up
+          iter <- iter+1
+
+          Q <- getQ(P=P, X=X, Y=YT, B=Sxy*R, tr=tr, sigma2=sigma2)
+
+          nErr <- abs((Q_old-Q)/Q)
+          if(!is.nan(nErr))
+          {
+               nErr_old <- nErr
+          }
+
+          if(!is.nan(sigma2))
+          {
+               sigma2_old <- sigma2
+          }
+
+          cat('Sigma^2=', sigma2, "\tNormError=", nErr, "\ts=", Sxy, "\tR=", getRS(R)$Theta, "\ttr", tr, "\n")
+
+          if(plot)
+          {
+               plotXYYT(X, Y, YT)
+          }
+     }
+     return(list(P=P, X=X, Y=Y, YT=YT, Sx=Sxy, Sy=Sxy, R=R, tr=tr, iter=iter, sigma2=sigma2, eps10=10*eps, nErr=nErr))
+}
+
 
 #' demoCPD
 #'
@@ -510,7 +734,7 @@ cpd.rigid <- function(X,Y, w, maxIter, tol, plot, sigma2, rateSRTSigma=c(1,1,1,1
 #' @param rigid boolean indicating whether to demo affine registration or rigid registration
 #'
 #' @export
-demoCPD <- function(rigid=F)
+demoCPD <- function(rigid=F, annealing=F)
 {
      set.seed(12345)
      n <- 100
@@ -525,15 +749,25 @@ demoCPD <- function(rigid=F)
      ypoints <- x2points + jitter2
      plot(xpoints, xlim=c(0, 4), ylim = c(0,4))
      points(ypoints, col='red')
-     if(!rigid)
+     if(!rigid & !annealing)
      {
           # list(P, X, Y, YT, B, tr, iter, sigma2, eps10, nErr)
           temp <- cpd.affine(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=1e-15, plot=T, sigma2=0.01, rateSRTSigma = c(0,0.1,1,0.0051))
      }
-     else
+     else if(rigid & !annealing)
      {
           # list(P, X, Y, YT, B, tr, iter, sigma2, eps10, nErr)
           temp <- cpd.rigid(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=1e-15, plot=T, sigma2=0.01, rateSRTSigma=c(0,0.1,1,0.0051))
+     }
+     else if(!rigid & annealing)
+     {
+          # list(P, X, Y, YT, B, tr, iter, sigma2, eps10, nErr)
+          temp <- cpd.affine.annealing(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=5e-3, plot=T, sigma2=100, rateSRTSigma=c(0,0.1,1,0.8))
+     }
+     else
+     {
+          # list(P, X, Y, YT, B, tr, iter, sigma2, eps10, nErr)
+          temp <- cpd.rigid.annealing(xpoints, ypoints+alpha*0.3, w=0.3, maxIter = 50, tol=5e-3, plot=T, sigma2=100, rateSRTSigma=c(0,0.1,1,0.8))
      }
 
      plotXYYT(temp$X, temp$Y, temp$YT)
