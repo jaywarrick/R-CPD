@@ -1,4 +1,3 @@
-#' @import Matrix
 #' @import matrixcalc
 NULL
 
